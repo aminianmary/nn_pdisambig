@@ -78,40 +78,52 @@ class SRLLSTM:
     def Load(self, filename):
         self.model.populate(filename)
 
-    def rnn(self, words, pwords, chars, pos, lemmas):
-        cembed = [lookup_batch(self.ce, c) for c in chars]
-
-        if not self.use_lemma:
-            lem_char_fwd, lem_char_bckd = self.lemma_char_lstm.builder_layers[0][0].initial_state().transduce(cembed)[-1], \
-                                  self.lemma_char_lstm.builder_layers[0][1].initial_state().transduce(reversed(cembed))[-1]
-            lem_crnn = reshape(concatenate_cols([lem_char_fwd, lem_char_bckd]), (self.d_cw, words.shape[0] * words.shape[1]))
-            lem_cnn_reps = [list() for _ in range(len(words))]
-            # first dim: word position; second dim: sentence number.
-            for i in range(words.shape[0]):
-                lem_cnn_reps[i] = pick_batch(lem_crnn, [i * words.shape[1] + j for j in range(words.shape[1])], 1)
-
-        if not self.use_pos:
-            pos_char_fwd, pos_char_bckd = self.pos_char_lstm.builder_layers[0][0].initial_state().transduce(cembed)[-1], \
-                                  self.pos_char_lstm.builder_layers[0][1].initial_state().transduce(reversed(cembed))[-1]
-            pos_crnn = reshape(concatenate_cols([pos_char_fwd, pos_char_bckd]), (self.d_pw, words.shape[0] * words.shape[1]))
-            pos_cnn_reps = [list() for _ in range(len(words))]
-            for i in range(words.shape[0]):
-                pos_cnn_reps[i] = pick_batch(pos_crnn, [i * words.shape[1] + j for j in range(words.shape[1])], 1)
-
-        inputs = [concatenate([lookup_batch(self.x_re, words[i]), lookup_batch(self.x_pe, pwords[i]),
-                               lookup_batch(self.x_le, lemmas[i]) if self.use_lemma else lem_cnn_reps[i],
-                               lookup_batch(self.x_pos, pos[i]) if self.use_pos else pos_cnn_reps[i]]) for i in range(len(words))]
-
-        for fb, bb in self.deep_lstms.builder_layers:
+    def transduce(self, rnn_builder, inputs):
+        for fb, bb in rnn_builder.builder_layers:
             f, b = fb.initial_state(), bb.initial_state()
             fs, bs = f.transduce(inputs), b.transduce(reversed(inputs))
             inputs = [concatenate([f, b]) for f, b in zip(fs, reversed(bs))]
         return inputs
 
+    def rnn(self, words, pwords, chars, pred_chars, pos, lemmas):
+        cembed = [lookup_batch(self.ce, c) for c in chars] if (not self.use_pos) else None
+        pred_cembed = [lookup_batch(self.ce, c) for c in pred_chars] if (not self.use_lemma) else None
+
+        if not self.use_lemma:
+            # predicate lemma input char lstm (should be zero for others)
+            lem_crnn = self.transduce(self.lemma_char_lstm, pred_cembed)[-1]
+            lem_crnn = transpose(reshape(lem_crnn, (self.d_cw, pred_chars.shape[1])))
+
+            zero_vector = inputVector(np.zeros(self.d_cw, dtype=float))
+            lem_cnn_reps = [list() for _ in range(len(words))]
+            for word_position in range(words.shape[0]):
+                vectors = []
+                for batch_num in range(words.shape[1]):
+                    if word_position == pred_index[batch_num]:
+                        vectors.append(lem_crnn[batch_num])
+                    else:
+                        vectors.append(zero_vector)
+                lem_cnn_reps[word_position] = concatenate_to_batch(vectors)
+
+        if not self.use_pos:
+            pos_crnn = self.transduce(self.pos_char_lstm, cembed)[-1]
+            pos_crnn = reshape(pos_crnn, (self.d_pw, chars.shape[1])) #todo without transpose
+            pos_cnn_reps = [list() for _ in range(len(words))]
+            for i in range(words.shape[0]):
+                pos_cnn_reps[i] = pick_batch(pos_crnn, [i * words.shape[1] + j for j in range(words.shape[1])], 1)
+
+        inputs = [concatenate([lookup_batch(self.x_re, words[i]),
+                               lookup_batch(self.x_pe, pwords[i]),
+                               lookup_batch(self.x_le, lemmas[i]) if self.use_lemma else lem_cnn_reps[i],
+                               lookup_batch(self.x_pos, pos[i]) if self.use_pos else pos_cnn_reps[i]]) for i in
+                  range(len(words))]
+
+        rnn_res = self.transduce(self.deep_lstms, inputs)
+        return rnn_res
 
     def buildGraph(self, minibatch, is_train):
-        words, pos, pwords, pos, lemmas, pred_lemmas, pred_lemmas_index, chars, senses, masks = minibatch
-        bilstms = self.rnn(words, pwords, chars, pos, lemmas)
+        words, pos, pwords, pos, lemmas, pred_lemmas, pred_lemmas_index, chars, pred_chars, senses, masks = minibatch
+        bilstms = self.rnn(words, pwords, chars, pred_chars, pos, lemmas)
         bilstms = [transpose(reshape(b, (b.dim()[0][0], b.dim()[1]))) for b in bilstms]
         senses, masks = senses.T, masks.T
 

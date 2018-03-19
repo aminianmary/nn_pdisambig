@@ -150,7 +150,7 @@ def get_batches(buckets, model, is_train, sen_cut):
         for dc in d_copy:
             random.shuffle(dc)
     mini_batches = []
-    batch, pred_ids, cur_len, cur_c_len = [], [], 0, 0
+    batch, pred_ids, cur_len, cur_c_len, cur_pred_c_len = [], [], 0, 0, 0
     b = model.options.batch if is_train else model.options.dev_batch_size
     for dc in d_copy:
         for d in dc:
@@ -160,44 +160,58 @@ def get_batches(buckets, model, is_train, sen_cut):
                     pred_ids.append([p,predicate])
                     cur_c_len = max(cur_c_len, max([len(w.norm) for w in d.entries]))
                     cur_len = max(cur_len, len(d))
+                    cur_pred_c_len = max(cur_pred_c_len, len(d.entries[predicate].norm))
 
             if cur_len * len(batch) >= b:
-                add_to_minibatch(batch, pred_ids, cur_c_len, cur_len, mini_batches, model)
-                batch, pred_ids, cur_len, cur_c_len = [], [], 0, 0
+                add_to_minibatch(batch, pred_ids, cur_c_len, cur_len, cur_pred_c_len, mini_batches, model)
+                batch, pred_ids, cur_len, cur_c_len, cur_pred_c_len = [], [], 0, 0, 0
 
     if len(batch)>0 and not is_train:
-        add_to_minibatch(batch, pred_ids, cur_c_len, cur_len, mini_batches, model)
+        add_to_minibatch(batch, pred_ids, cur_c_len, cur_len, cur_pred_c_len, mini_batches, model)
     if is_train:
         random.shuffle(mini_batches)
     return mini_batches
 
 
-def add_to_minibatch(batch, pred_ids, cur_c_len, cur_len, mini_batches, model):
+def add_to_minibatch(batch, pred_ids, cur_c_len, cur_pred_c_len, cur_len, mini_batches, model):
     words = np.array([np.array(
-        [model.words.get(batch[i][j].norm, 0) if j < len(batch[i]) else model.PAD for i in
+        [model.words.get(batch[i][j].norm, 0) if j < len(batch[i]) else model.PAD_index for i in
          range(len(batch))]) for j in range(cur_len)])
     pwords = np.array([np.array(
-        	[model.x_pe_dict.get(batch[i][j].norm, 0) if j < len(batch[i]) else model.PAD for i in range(len(batch))])
-            for j in range(cur_len)])
-    pos = np.array([np.array(
-        [model.pos.get(batch[i][j].pos, 0) if j < len(batch[i]) else model.PAD for i in
+        [model.x_pe_dict.get(batch[i][j].norm, 0) if j < len(batch[i]) else model.PAD_index for i in
          range(len(batch))]) for j in range(cur_len)])
     lemmas = np.array([np.array(
-        [(model.plemmas.get(batch[i][j].lemma, 0) if pred_ids[i][1] == j else model.NO_LEMMA) if j < len(
-            batch[i]) else model.PAD for i in
-         range(len(batch))]) for j in range(cur_len)])
-    pred_lemmas = np.array([model.plemmas.get(batch[i][pred_ids[i][1]].lemma, 0) for i in range(len(batch))])
-    pred_lemmas_index = np.array([pred_ids[i][1] for i in range(len(batch))])
+        [(model.pred_lemmas.get(batch[i][j].lemma, 0) if pred_ids[i][1]==j else model.NO_LEMMA_index)if j < len(batch[i])
+         else model.PAD_index for i in range(len(batch))]) for j in range(cur_len)]) if model.use_lemma else None
+    pos = np.array([np.array(
+        [model.pos.get(batch[i][j].pos, 0) if j < len(batch[i]) else model.PAD_index for i in
+         range(len(batch))]) for j in range(cur_len)]) if model.use_pos else None
     senses = np.array([np.array(
         [model.senses.get(batch[i][j].sense, 0) if j < len(batch[i]) else 0 for i in
          range(len(batch))]) for j in range(cur_len)])
-    chars = np.array([[[model.char_dict.get(batch[i][j].form[c].lower(), 0) if 0 < j < len(batch[i]) and c < len(
-        batch[i][j].form) else (1 if j == 0 and c == 0 else 0) for i in range(len(batch))] for j in range(cur_len)] for
-                      c in range(cur_c_len)])
-    chars = np.transpose(np.reshape(chars, (len(batch) * cur_len, cur_c_len)))
+    chars = [list() for _ in range(cur_c_len)]
+    for c_pos in range(cur_c_len):
+        ch = [model.PAD_index] * (len(batch) * cur_len)
+        offset = 0
+        for w_pos in range(cur_len):
+            for sen_position in range(len(batch)):
+                if w_pos < len(batch[sen_position]) and c_pos < len(batch[sen_position][w_pos].norm):
+                    ch[offset] = model.chars.get(batch[sen_position][w_pos].norm[c_pos].lower(), 0)
+                offset += 1
+        chars[c_pos] = np.array(ch)
+    chars = np.array(chars)
+    pred_chars = [list() for _ in range(cur_pred_c_len)]
+    for c_pos in range(cur_pred_c_len):
+        ch = [model.PAD_index] * len(batch)
+        for sen_position in range(len(batch)):
+            if c_pos < len(batch[sen_position][pred_ids[sen_position][1]].norm):
+                ch[sen_position] = model.chars.get(batch[sen_position][pred_ids[sen_position][1]].norm[c_pos].lower(), 0)
+        pred_chars[c_pos] = np.array(ch)
+    pred_chars = np.array(pred_chars)
+    pred_lemmas = np.array([model.plemmas.get(batch[i][pred_ids[i][1]].lemma, 0) for i in range(len(batch))])
+    pred_lemmas_index = np.array([pred_ids[i][1] for i in range(len(batch))])
     masks = np.array([np.array([1 if j < len(batch[i]) and batch[i][j].sense !='?' else 0 for i in range(len(batch))]) for j in range(cur_len)])
-    mini_batches.append((words, pos, pwords, pos, lemmas, pred_lemmas, pred_lemmas_index, chars, senses, masks))
-
+    mini_batches.append((words, pos, pwords, pos, lemmas, pred_lemmas, pred_lemmas_index, chars, pred_chars, senses, masks))
 
 def get_scores(fp):
     labeled_f = 0
@@ -213,7 +227,6 @@ def get_scores(fp):
                 spl = line.strip().split(' ')
                 unlabeled_f = spl[len(spl) - 1]
     return (labeled_f, unlabeled_f)
-
 
 def eval_sense(gold_file, predicted_file):
     r1 = codecs.open(gold_file, 'r')

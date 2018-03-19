@@ -12,18 +12,18 @@ class SRLLSTM:
         self.trainer = AdamTrainer(self.model, options.learning_rate, options.beta1, options.beta2, options.eps)
         self.trainer.set_clip_threshold(1.0)
         self.unk_id = 0
-        self.PAD = 1
-        self.NO_LEMMA = 2
+        self.PAD_index = 1
+        self.NO_LEMMA_index = 2
         self.words = {word: ind + 2 for ind,word in enumerate(words)}
         self.pWords = {word: ind + 2 for ind,word in enumerate(pWords)}
         self.plemmas = {word: ind + 3 for ind,word in enumerate(plemmas)}
         self.pos = {p: ind + 2 for ind, p in enumerate(pos)}
         self.ipos = ['<UNK>', '<PAD>'] + pos
         senses = ['<UNK>'] + senses
+        self.chars = {c: i + 2 for i, c in enumerate(chars)} #0 for UNK, 1 for PAD
         self.senses = {s: ind for ind, s in enumerate(senses)}
         self.isenses = senses
         self.sense_mask = sense_mask
-        self.char_dict = {c: i + 2 for i, c in enumerate(chars)}
         self.d_w = options.d_w
         self.d_pos = options.d_pos #pos embedding dim
         self.d_l = options.d_l #lemma embedding dim
@@ -85,7 +85,7 @@ class SRLLSTM:
             inputs = [concatenate([f, b]) for f, b in zip(fs, reversed(bs))]
         return inputs
 
-    def rnn(self, words, pwords, chars, pred_chars, pos, lemmas):
+    def rnn(self, words, pwords, chars, pred_chars, pos, lemmas, pred_index):
         cembed = [lookup_batch(self.ce, c) for c in chars] if (not self.use_pos) else None
         pred_cembed = [lookup_batch(self.ce, c) for c in pred_chars] if (not self.use_lemma) else None
 
@@ -123,7 +123,7 @@ class SRLLSTM:
 
     def buildGraph(self, minibatch, is_train):
         words, pos, pwords, pos, lemmas, pred_lemmas, pred_lemmas_index, chars, pred_chars, senses, masks = minibatch
-        bilstms = self.rnn(words, pwords, chars, pred_chars, pos, lemmas)
+        bilstms = self.rnn(words, pwords, chars, pred_chars, pos, lemmas, pred_lemmas_index)
         bilstms = [transpose(reshape(b, (b.dim()[0][0], b.dim()[1]))) for b in bilstms]
         senses, masks = senses.T, masks.T
 

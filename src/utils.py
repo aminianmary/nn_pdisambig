@@ -173,7 +173,7 @@ def get_batches(buckets, model, is_train, sen_cut):
     return mini_batches
 
 
-def add_to_minibatch(batch, pred_ids, cur_c_len, cur_pred_c_len, cur_len, mini_batches, model):
+def add_to_minibatch(batch, pred_ids, cur_c_len, cur_len, cur_pred_c_len, mini_batches, model):
     words = np.array([np.array(
         [model.words.get(batch[i][j].norm, 0) if j < len(batch[i]) else model.PAD_index for i in
          range(len(batch))]) for j in range(cur_len)])

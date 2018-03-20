@@ -181,7 +181,7 @@ def add_to_minibatch(batch, pred_ids, cur_c_len, cur_pred_c_len, cur_len, mini_b
         [model.x_pe_dict.get(batch[i][j].norm, 0) if j < len(batch[i]) else model.PAD_index for i in
          range(len(batch))]) for j in range(cur_len)])
     lemmas = np.array([np.array(
-        [(model.pred_lemmas.get(batch[i][j].lemma, 0) if pred_ids[i][1]==j else model.NO_LEMMA_index)if j < len(batch[i])
+        [(model.plemmas.get(batch[i][j].lemma, 0) if pred_ids[i][1]==j else model.NO_LEMMA_index)if j < len(batch[i])
          else model.PAD_index for i in range(len(batch))]) for j in range(cur_len)]) if model.use_lemma else None
     pos = np.array([np.array(
         [model.pos.get(batch[i][j].pos, 0) if j < len(batch[i]) else model.PAD_index for i in

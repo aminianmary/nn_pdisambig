@@ -151,15 +151,11 @@ class SRLLSTM:
         outputs = np.concatenate(outputs, axis=1)
         return outputs.T
 
-    def Train(self, mini_batches, epoch, best_f_score, options):
+    def Train(self, mini_batches, epoch, best_acc, options):
         print 'Start time', time.ctime()
         start = time.time()
         iters = 0
         dev_path = options.conll_dev
-
-        part_size = max(len(mini_batches)/5, 1)
-        part = 0
-        best_part = 0
 
         for b, mini_batch in enumerate(mini_batches):
             sum_errs = self.buildGraph(mini_batch, True)
@@ -171,22 +167,18 @@ class SRLLSTM:
             start = time.time()
             iters+=1
 
-            if (b+1)%part_size==0:
-                part+=1
+        if dev_path != None:
+            write_conll(os.path.join(options.outdir, options.model) + str(epoch + 1) +'.txt',
+                              self.Predict(dev_path, options.sen_cut, options.default_sense))
+            accuracy = eval_sense(dev_path, os.path.join(options.outdir, options.model) + str(epoch + 1) +'.txt')
+            print 'Accuracy after finishing the epoch: ' + str(accuracy)
 
-                if dev_path != None:
-                    start = time.time()
-                    write_conll(os.path.join(options.outdir, options.model) + str(epoch + 1) + "_" + str(part)+ '.txt',
-                                      self.Predict(dev_path, options.sen_cut, options.default_sense))
-                    accuracy = eval_sense(dev_path, os.path.join(options.outdir, options.model) + str(epoch + 1) + "_" + str(part)+ '.txt')
 
-                    if float(accuracy) >= best_f_score:
-                        self.Save(os.path.join(options.outdir, options.model))
-                        best_f_score = accuracy
-                        best_part = part
+        if float(accuracy) >= best_acc:
+            self.Save(os.path.join(options.outdir, options.model))
+            best_acc = accuracy
 
-        print 'best part on this epoch: '+ str(best_part)
-        return best_f_score
+        return best_acc
 
     def Predict(self, conll_path, sen_cut, use_default_sense):
         print 'starting to decode...'

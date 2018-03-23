@@ -67,7 +67,7 @@ if __name__ == '__main__':
 
         print 'Initializing blstm srl:'
         parser = SRLLSTM(words,pWords, plemmas, pos, roles, chars, sense_mask, options)
-        best_f_score = 0.0
+        best_acc = 0.0
 
         max_len = max([len(d) for d in train_data])
         min_len = min([len(d) for d in train_data])
@@ -78,9 +78,7 @@ if __name__ == '__main__':
 
         for epoch in xrange(options.epochs):
             print 'Starting epoch', epoch
-            print 'best F-score before starting the epoch: ' + str(best_f_score)
-            best_f_score = parser.Train(utils.get_batches(buckets, parser, True, options.sen_cut), epoch, best_f_score, options)
-            print 'best F-score after finishing the epoch: ' + str(best_f_score)
+            best_acc = parser.Train(utils.get_batches(buckets, parser, True, options.sen_cut), epoch, best_acc, options)
 
         if options.conll_dev == None:
             parser.Save(os.path.join(options.outdir, options.model))

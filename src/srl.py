@@ -156,6 +156,7 @@ class SRLLSTM:
         start = time.time()
         iters = 0
         dev_path = options.conll_dev
+        accuracy = 0
 
         for b, mini_batch in enumerate(mini_batches):
             sum_errs = self.buildGraph(mini_batch, True)
@@ -172,11 +173,9 @@ class SRLLSTM:
                               self.Predict(dev_path, options.sen_cut, options.default_sense))
             accuracy = eval_sense(dev_path, os.path.join(options.outdir, options.model) + str(epoch + 1) +'.txt')
             print 'Accuracy after finishing the epoch: ' + str(accuracy)
-
-
-        if float(accuracy) >= best_acc:
-            self.Save(os.path.join(options.outdir, options.model))
-            best_acc = accuracy
+            if float(accuracy) >= best_acc:
+                self.Save(os.path.join(options.outdir, options.model))
+                best_acc = accuracy
 
         return best_acc
 
